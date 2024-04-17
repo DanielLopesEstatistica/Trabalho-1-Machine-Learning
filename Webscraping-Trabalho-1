@@ -1,0 +1,91 @@
+import pandas as pd
+from selenium import webdriver
+import time
+from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver import Firefox
+from webdriver_manager.firefox import GeckoDriverManager
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import requests
+from PIL import Image
+import os
+
+def get_links_names_dates(browser):
+    links = []
+    names = []
+    dates = []
+    elementos = browser.find_elements(By.CSS_SELECTOR, "li.painting-list-text-row")
+    for elemento in elementos:
+        elemento1 = elemento.find_elements(By.CSS_SELECTOR, "a")[0]
+        elemento2 = elemento.find_elements(By.CSS_SELECTOR, "span")[0]
+        links.append(elemento1.get_attribute("href"))
+        names.append(elemento1.text)
+        dates.append(elemento2.text[2:])
+    return(links, names, dates)
+    
+def get_image(browser, index):
+    image_element = browser.find_element(By.CSS_SELECTOR, 'img[itemprop="image"]')
+    image_url = image_element.get_attribute('src')
+    time.sleep(1)
+    response = requests.get(image_url)
+    response.raise_for_status()
+    image_path = os.path.join("Imagens", f"imagem{index}.png")
+
+    with open(image_path, 'wb') as file:
+        file.write(response.content)
+
+
+browser = webdriver.Firefox(executable_path=GeckoDriverManager().install())
+
+url = "https://www.wikiart.org/en/piet-mondrian/all-works/text-list"
+
+browser.get(url)
+
+time.sleep(1)
+
+results = get_links_names_dates(browser)
+links = results[0]
+names = results[1]
+dates = results[2]
+index = 0
+
+df = df = pd.DataFrame({
+    'names': names,
+    'dates': dates
+})
+
+df.to_csv('mondrian.csv', index=False)
+
+for link in links:
+    index = index + 1
+    time.sleep(1)
+    browser.get(link)
+    get_image(browser, index)
+
+
+
+def convert_images_to_png(folder_path, output_folder):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    for filename in os.listdir(folder_path):
+        if filename.startswith("imagem") and filename.endswith(".png"):
+            try:
+                img = Image.open(os.path.join(folder_path, filename))
+
+                output_filename = os.path.splitext(filename)[0] + ".png"
+                img.save(os.path.join(output_folder, output_filename), "PNG")
+
+            except Exception as e:
+                print(f"erro em {e}")
+
+folder_path = "Imagens"  
+output_folder = "ImagensPNG" 
+
+convert_images_to_png(folder_path, output_folder)
+
+    
