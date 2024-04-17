@@ -1,0 +1,347 @@
+---
+title: "Trabalho 1"
+author: "Daniel"
+date: "2024-04-16"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(cowplot)
+library(magick)
+library(png)
+library(foreach)
+library(doParallel)
+
+set.seed(236081)
+```
+
+
+```{r}
+registerDoParallel(7)
+
+dados = read.csv("mondrian.csv")
+
+img_to_pb = function(img){
+  return((img[,,1]+img[,,2]+img[,,3])/2)
+}
+
+subtract = function(x,y){
+  if(any(is.na(c(x,y)))){return(0)}
+  else{return(x-y)}
+}
+
+subtract = Vectorize(subtract)
+
+calc_entropy = function(matriz){
+  amostra = 500
+  linhas = nrow(matriz)
+  colunas = ncol(matriz)
+  entorno = 10
+  NA_coluna = matrix(rep(NA, entorno*linhas), nrow = linhas)
+  NA_linha = matrix(rep(NA, entorno*(colunas+(2*entorno))), nrow = entorno)
+  matriz = cbind(NA_coluna, matriz, NA_coluna)
+  matriz = rbind(NA_linha, matriz, NA_linha)
+  celulas = 0
+  sequencia1 = sample((1+entorno):(linhas-entorno), replace = TRUE, size = amostra)
+  sequencia2 = sample((1+entorno):(colunas-entorno), replace = TRUE, size = amostra)
+  
+  vetor = foreach(k = 1:amostra, .combine = c) %dopar%{
+    i = sequencia1[k]
+    j = sequencia2[k]
+    subtract = function(x,y){
+      if(any(is.na(c(x,y)))){return(0)}
+      else{return(x-y)}
+    }
+    subtract = Vectorize(subtract)
+    valor = matriz[i,j] |> unlist()
+    submatriz = matriz[(i-entorno):(i+entorno), (j-entorno):(j+entorno)] |> unlist()
+    sum(subtract(valor, submatriz)^2)
+  }
+  return(sum(vetor)/amostra)
+}
+
+
+# RedEntropy = list()
+# GreenEntropy = list()
+# BlueEntropy = list()
+Redness = list()
+Greeness = list()
+Blueness = list()
+Contraste = list()
+Entropia = list()
+
+for(n in 1:101){
+  print(n)
+  caminho = paste0("ImagensPNG/imagem", n, ".png")
+  img = readPNG(caminho)
+  red = img[,,1] - (img[,,2] + img[,,3])/2
+  blue = img[,,2] - (img[,,1] + img[,,3])/2
+  green = img[,,3] - (img[,,2] + img[,,1])/2
+  
+  c = prod(dim(img[,,1]))
+  Redness[[n]] = sum(red[red>0])/c
+  Blueness[[n]] = sum(green[green>0])/c
+  Greeness[[n]] = sum(blue[blue>0])/c
+  
+  pbIMG = img_to_pb(img)
+  
+  Contraste[[n]] = calc_entropy(pbIMG)
+  
+  hist <- hist(pbIMG, breaks = 256, plot = FALSE)
+  probs <- hist$counts / sum(hist$counts)
+  entropia <- -sum(probs[probs>0]*log(probs[probs>0]))
+
+  Entropia[[n]] = entropia
+  
+  # for(i in 1:3){
+  #   hist <- hist(img[,,i], breaks = 256, plot = FALSE)
+  #   probs <- hist$counts / sum(hist$counts)
+  #   entropia <- -sum(probs[probs>0]*log(probs[probs>0]))
+  #   if(i == 1){RedEntropy[[n]] = entropia}
+  #   if(i == 3){GreenEntropy[[n]] = entropia}
+  #   if(i == 2){BlueEntropy[[n]] = entropia}
+  # }
+}
+
+# RedEntropy = unlist(RedEntropy)
+# GreenEntropy = unlist(GreenEntropy)
+# BlueEntropy = unlist(BlueEntropy)
+Entropia = unlist(Entropia)
+Redness = unlist(Redness)
+Greeness = unlist(Greeness)
+Blueness = unlist(Blueness)
+Contraste = unlist(Contraste)
+
+dados = read.csv("mondrian.csv")[1:101,]
+dados$dates = as.numeric(dados$dates)
+dados = cbind(dados, #RedEntropy, GreenEntropy, BlueEntropy,
+              Redness, Greeness, Blueness, Contraste,
+              Entropia)
+
+write.csv(dados, "dados.csv", row.names = FALSE)
+
+```
+
+```{r}
+give_ggplot = function(number){
+  theme_set(theme_cowplot())
+  caminho = paste0("imagem",number,"Bootstrap.csv")
+  df = read.csv(caminho)[,-1] |> as.data.frame()
+  colnames(df) = "x"
+  std_x <- sd(df$x)
+  new_x <- df$x - 2*std_x
+  
+  texto = paste0("Variância: ", var(df$x) |> round(2))
+  
+  my_plot <- ggplot(data = df, aes(x = x, fill = "red")) +
+    geom_histogram(color = "black") + 
+    annotate("text", x = mean(new_x), y = 75, label = texto, size = 5, color = "red") +
+    labs(x = "Contraste Estimado", y = "Contagem", title = paste0("Bootstrap - Contraste"), subtitle = dados$names[number]) +
+    guides(fill = "none")
+    
+  imagem = paste0("ImagensPNG/imagem", number, ".png")
+  my_plot <- ggdraw() +
+    draw_image(imagem, x = 0.3, y = 0.3, scale = 0.5) +
+    draw_plot(my_plot)
+  my_plot
+}
+
+give_ggplot(38)
+ggsave("Imagem38Bootstrap.png")
+```
+
+```{r}
+img = readPNG("ImagensPNG/imagem3.png")
+estimadores = list()
+
+for(i in 1:1000){
+  if(i%%100 == 0){print(i)}
+  estimadores[[i]] = calc_entropy(img_to_pb(img))
+}
+
+estimadores = unlist(estimadores)
+
+hist(estimadores)
+mean(estimadores)
+summary(estimadores)
+sqrt(var(estimadores))
+
+write.csv(estimadores, "imagem3Bootstrap.csv")
+```
+
+```{r}
+img = readPNG("ImagensPNG/imagem38.png")
+estimadores = list()
+
+for(i in 1:1000){
+  if(i%%100 == 0){print(i)}
+  estimadores[[i]] = calc_entropy(img_to_pb(img))
+}
+
+estimadores = unlist(estimadores)
+
+hist(estimadores)
+mean(estimadores)
+summary(estimadores)
+sqrt(var(estimadores))
+
+write.csv(estimadores, "imagem38Bootstrap.csv")
+```
+
+```{r}
+dados = read.csv("dados.csv")
+
+numericos = dados[,-c(1:2)]
+
+pairs(numericos)
+
+numericos = numericos %>%
+  mutate(Contraste = Contraste |> sqrt())
+
+pairs(numericos)
+
+numericos = sapply(numericos, scale) |> as.data.frame()
+rownames(numericos) = paste0(dados$names, "-", dados$dates)
+
+pivotado = numericos |> pivot_longer(everything())
+
+ggplot(pivotado, aes(x = name, y = value)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+modelPCArun = princomp(numericos)
+
+explicVar = cumsum(modelPCArun$sdev^2)/sum(modelPCArun$sdev^2)
+explicVar = data.frame(Explicada = explicVar)
+colnames(explicVar) = "Explicada"
+
+ggplot(explicVar, aes(x = 1:nrow(explicVar), y = Explicada, fill = "red"))+
+  geom_histogram(color = "black", stat = "identity")+
+  theme_classic()+
+  labs(x = "Número de Componentes Principais", y = "Porcentagem de Variação Explicada",
+       title = "Scree plot da Análise de Componentes Principais")+
+  guides(fill = "none")
+  
+
+print(modelPCArun$loadings)
+
+plot(modelPCArun$scores[,1:2])
+
+plot(modelPCArun)
+
+#clusters = kmeans(modelPCArun$scores[,1:2], centers = 2)
+
+var_percen = list()
+scree_kmeans = list()
+
+for(seed in 1:4){
+  set.seed(seed)
+  for(i in 1:10){
+    clusters = kmeans(numericos, centers = i)
+    var_percen[[i]] = clusters$betweenss/clusters$totss
+  }
+  
+  var_percen = unlist(var_percen)
+  scree_kmeans[[seed]] = var_percen
+}
+
+df_scree = unlist(scree_kmeans) |> as.data.frame()
+
+df_scree$Seed = c(rep(1, 10), rep(2,10), rep(3,10), rep(4,10))
+df_scree$Seed = paste0("Seed - ", df_scree$Seed)
+df_scree$num = c(1:10, 1:10, 1:10, 1:10)
+
+colnames(df_scree)[1] = "Valor"
+
+ggplot(df_scree, aes(y = Valor, fill = "red"))+
+  geom_bar(aes(x = num |> as.factor()), color = "black", stat = "identity")+
+  geom_line(aes(x = num), color = "black")+
+  geom_point(aes(x = num), color = "black")+
+  facet_wrap(.~Seed)+
+  theme_classic()+
+  labs(x = "Número de Clusters", y = "Porcentagem de Variação Explicada",
+       title = "Scree plot do Número de Clusters - K-Means")+
+  guides(fill = "none")
+
+set.seed(236081)
+
+clusters = kmeans(modelPCArun$scores[,1:3], centers = 4)
+
+# dados$cluster = clusters$cluster
+
+PCs = modelPCArun$scores[,1:2] #|> sapply(as.numeric) |> as.data.frame()
+rownames(PCs) = NULL
+
+dados_plot = cbind(modelPCArun$scores[,1:2], clusters$cluster, dados$names, dados$dates) |> as.data.frame()
+colnames(dados_plot) = c("x", "y", "Cluster","nome", "data")
+dados_plot$x = as.numeric(dados_plot$x)
+dados_plot$y = as.numeric(dados_plot$y)
+dados_plot$data = as.numeric(dados_plot$data)
+
+ggplot(dados_plot, aes(x = x, y = y, color = Cluster))+
+  geom_point(size = 2)+
+  theme_classic()+
+  labs(x = "PCA1 - 28,77%", 
+       y = "PCA2 - 28,15%", 
+       title = "Componentes Principais por Cluster")
+
+vetor_medias = dados_plot %>% group_by(Cluster) %>% 
+  summarise(medias = mean(data, na.rm = TRUE) |> round()) %>% select(medias) %>% unlist()
+
+# vetor_medias = c(rep(vetor_medias[1], 101),
+#                  rep(vetor_medias[2], 101),
+#                  rep(vetor_medias[3], 101),
+#                  rep(vetor_medias[4], 101))
+#dados_plot$anos_medios = vetor_medias[dados_plot$Cluster |> as.numeric()]
+
+anotacoes = data.frame(Cluster = 1:4,
+                       x = rep(1920, 4),
+                       y = rep(10, 4),
+                       texto = vetor_medias)
+
+ggplot(dados_plot, aes(x = data, fill = "red"))+
+  geom_histogram(color = "black")+
+  theme_classic()+
+  facet_wrap(.~Cluster, labeller = labeller(Cluster = 
+    c("1" = "Cluster 1",
+      "2" = "Cluster 2",
+      "3" = "Cluster 3",
+      "4" = "Cluster 4")))+
+  geom_text(data = anotacoes, aes(x = x, y=y,
+                                  label = paste0("Média = ", texto)), inherit.aes = FALSE)+
+  scale_y_continuous(breaks= 1:12)+
+  labs(x = "Ano de Publicação da Pintura", 
+       y = "Contagem", 
+       title = "Histograma dos Anos de Publicação por Cluster")+
+  guides(fill = "none")
+
+
+#modelPCArun$loadings
+
+#plot(modelPCArun$scores[,1:2], col = clusters$cluster |> as.factor())
+
+# dados$cluster = clusters$cluster
+
+# biplot(modelPCArun)
+# 
+# print(dados %>% mutate(dates = as.numeric(dates)) %>% 
+#         group_by(cluster) %>% summarise(ano_medio = mean(dates, na.rm = TRUE)))
+```
+```{r}
+set.seed(236081)
+dados_plot$index = 1:101
+dados_plot[dados_plot$Cluster == 1,][sample(1:51, 3),] |> print()
+dados_plot[dados_plot$Cluster == 2,][sample(1:9, 3),] |> print()
+dados_plot[dados_plot$Cluster == 3,][sample(1:16, 3),] |> print()
+dados_plot[dados_plot$Cluster == 4,][sample(1:19, 3),] |> print()
+```
+
+
+```{r}
+img = readPNG("ImagensPNG/imagem1.png")
+pbIMG = img_to_pb(img)
+hist <- hist(pbIMG, breaks = 256, plot = TRUE)
+#probs <- hist$counts / sum(hist$counts)
+```
